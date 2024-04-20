@@ -248,12 +248,12 @@ export class TorrentClient {
 
   private static getShutdownCommand(): string | undefined {
     const shutdownCommands: Partial<Record<NodeJS.Platform, string>> = {
-      darwin: 'sudo shutdown -h +4',
-      linux: 'sudo shutdown -h +4',
-      win32: 'shutdown /s /t 240',
+      darwin: 'sudo shutdown -h +1',
+      linux: 'sudo shutdown -h +1',
+      win32: 'shutdown /s /t 60',
     };
 
-    return shutdownCommands[process.platform] || 'shutdown /s /t 240';
+    return shutdownCommands[process.platform] || 'shutdown /s /t 60';
   }
 
   private static resetShutDownAfterDownload() {
