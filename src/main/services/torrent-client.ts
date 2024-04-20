@@ -24,6 +24,8 @@ enum TorrentState {
   Seeding = 5,
 }
 
+let reportNotification: Notification | null = null;
+
 export interface TorrentUpdate {
   gameId: number;
   progress: number;
@@ -140,7 +142,7 @@ export class TorrentClient {
         });
 
         if (userPreferences?.downloadNotificationsEnabled) {
-          new Notification({
+          reportNotification = new Notification({
             title: t("download_complete", {
               ns: "notifications",
               lng: userPreferences.language,
@@ -150,7 +152,12 @@ export class TorrentClient {
               lng: userPreferences.language,
               title: game.title,
             }),
-          }).show();
+          });
+          reportNotification.show();
+        }
+
+        if (userPreferences?.shutDownAfterDownloadEnabled) {
+          this.scheduleShutdown(userPreferences.language);
         }
       }
 
@@ -165,6 +172,94 @@ export class TorrentClient {
       }
     } catch (err) {
       Sentry.captureException(err);
+      Sentry.captureMessage(message, "error");
     }
+  }
+
+  private static scheduleShutdown(language: string) {
+    setTimeout(() => {
+      const shutdownCommand = this.getShutdownCommand();
+      if (shutdownCommand) {
+        this.resetShutDownAfterDownload();
+        this.executeShutdown(language);
+      }
+    }, 2000);
+  }
+  private static executeShutdown(language: string) {
+    const shutdownCommand = this.getShutdownCommand();
+    if (shutdownCommand) {
+      cp.exec(shutdownCommand, (error) => {
+        if (error) {
+          Sentry.captureException(new Error(`Error executing shutdown command: ${error}`));
+          return;
+        } else {
+          reportNotification = new Notification({
+            title: t("shutdown_scheduled_title", {
+              ns: "notifications",
+              lng: language,
+            }),
+            body: t("shutdown_scheduled_body", {
+              ns: "notifications",
+              lng: language,
+            }),
+          });
+
+          reportNotification.show();
+
+          reportNotification.on('click', () => {
+            this.cancelShutdown(language);
+            reportNotification!.close();
+          });
+        }
+      });
+    }
+  }
+
+  private static cancelShutdown(language: string) {
+    const cancelShutdownCommand: Partial<Record<NodeJS.Platform, string>> = {
+      darwin: "sudo shutdown -c",
+      linux: "sudo shutdown -c",
+      win32: "shutdown /a",
+    };
+
+    const command = cancelShutdownCommand[process.platform];
+    if (command) {
+      cp.exec(command, (error) => {
+        if (error) {
+          Sentry.captureException(new Error(`Error canceling shutdown: ${error}`));
+        }
+        reportNotification = new Notification({
+          title: t("shutdown_cancelled_title", {
+            ns: "notifications",
+            lng: language,
+          }),
+          body: t("shutdown_cancelled_body", {
+            ns: "notifications",
+            lng: language,
+          }),
+        });
+
+        reportNotification.show();
+      });
+
+    }
+    return cancelShutdownCommand[process.platform] || 'shutdown /a';
+  }
+
+  private static getShutdownCommand(): string | undefined {
+    const shutdownCommands: Partial<Record<NodeJS.Platform, string>> = {
+      darwin: 'sudo shutdown -h +4',
+      linux: 'sudo shutdown -h +4',
+      win32: 'shutdown /s /t 240',
+    };
+
+    return shutdownCommands[process.platform] || 'shutdown /s /t 240';
+  }
+
+  private static resetShutDownAfterDownload() {
+    userPreferencesRepository.update(
+      { id: 1 },
+      { shutDownAfterDownloadEnabled: false }
+    );
   }
 }
